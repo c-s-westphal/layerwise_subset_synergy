@@ -179,15 +179,24 @@ def main():
     parser.add_argument('--model', type=str, default='all',
                        choices=['vgg11', 'vgg13', 'vgg16', 'vgg19', 'all'],
                        help='Model to evaluate (default: all)')
-    parser.add_argument('--checkpoint', type=str, default='best',
-                       choices=['best', 'final'],
-                       help='Which checkpoint to use (default: best)')
-    parser.add_argument('--n-subsets', type=int, default=100,
+    parser.add_argument('--checkpoint', type=str, default=None,
+                       help='Path to specific checkpoint file, or "best"/"final" for standard names (default: None)')
+    parser.add_argument('--n_subsets', '--n-subsets', type=int, default=100,
+                       dest='n_subsets',
                        help='Number of random subsets per layer (default: 100)')
-    parser.add_argument('--batch-size', type=int, default=128,
+    parser.add_argument('--batch_size', '--batch-size', type=int, default=128,
+                       dest='batch_size',
                        help='Batch size (default: 128)')
     parser.add_argument('--device', type=str, default='cuda',
                        help='Device to use (default: cuda)')
+    parser.add_argument('--seed', type=int, default=None,
+                       help='Seed used for naming outputs (default: None)')
+    parser.add_argument('--output_dir', type=str, default='results',
+                       help='Output directory for results (default: results)')
+    parser.add_argument('--max_layer_batches', type=int, default=None,
+                       help='Maximum batches per layer (unused, for compatibility)')
+    parser.add_argument('--keep_checkpoint', action='store_true',
+                       help='Keep checkpoint after evaluation (unused, for compatibility)')
 
     args = parser.parse_args()
 
@@ -206,7 +215,19 @@ def main():
     all_results = {}
 
     for model_name in models_to_eval:
-        checkpoint_path = f'checkpoints/{model_name}_{args.checkpoint}.pth'
+        # Determine checkpoint path
+        if args.checkpoint is None:
+            # Default: look for seed-specific checkpoint
+            if args.seed is not None:
+                checkpoint_path = f'checkpoints/{model_name}_seed{args.seed}/checkpoint_latest.pth'
+            else:
+                checkpoint_path = f'checkpoints/{model_name}_best.pth'
+        elif args.checkpoint in ['best', 'final']:
+            # Legacy mode: best or final
+            checkpoint_path = f'checkpoints/{model_name}_{args.checkpoint}.pth'
+        else:
+            # Direct path provided
+            checkpoint_path = args.checkpoint
 
         if not os.path.exists(checkpoint_path):
             print(f"Checkpoint not found: {checkpoint_path}")
@@ -224,8 +245,16 @@ def main():
         all_results[model_name] = results
 
     # Save all results
-    os.makedirs('results', exist_ok=True)
-    output_path = f'results/mi_results_{args.checkpoint}.json'
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    if args.seed is not None:
+        output_filename = f'mi_results_{args.model}_seed{args.seed}.json'
+    elif args.checkpoint in ['best', 'final']:
+        output_filename = f'mi_results_{args.checkpoint}.json'
+    else:
+        output_filename = 'mi_results.json'
+
+    output_path = os.path.join(args.output_dir, output_filename)
 
     with open(output_path, 'w') as f:
         json.dump(all_results, f, indent=2)

@@ -89,17 +89,15 @@ fi
 
 echo "Found checkpoint: $checkpoint_file"
 
-# Run layer-wise evaluation (100 subsets per layer, 50 batches per layer)
+# Run layer-wise evaluation (100 subsets per layer)
 # Note: checkpoint will be kept (not deleted after evaluation)
-python3.9 -u evaluate_all_layers.py \
+python3.9 -u evaluate.py \
     --checkpoint "$checkpoint_file" \
     --model vgg13 \
     --n_subsets 100 \
-    --max_layer_batches 50 \
     --output_dir data \
     --device cuda \
-    --seed $seed \
-    --keep_checkpoint
+    --seed $seed
 
 date
 echo "Evaluation completed successfully: VGG13 | Seed $seed"
