@@ -62,7 +62,6 @@ python3.9 -u train.py \
     --lr_schedule \
     --lr_milestones 150 225 \
     --lr_gamma 0.1 \
-    --target_train_acc 99.9 \
     --checkpoint_dir checkpoints \
     --log_dir logs
 

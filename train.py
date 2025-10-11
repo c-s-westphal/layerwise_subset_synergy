@@ -13,29 +13,21 @@ from models import vgg11, vgg13, vgg16, vgg19
 
 def get_cifar10_loaders(batch_size=128):
     """
-    Get CIFAR-10 train and test data loaders with standard augmentations.
+    Get CIFAR-10 train and test data loaders (no augmentation).
     """
-    # Data augmentation for training
-    transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])
-
-    # Normalization only for test
-    transform_test = transforms.Compose([
+    # Only normalization for both train and test
+    transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ])
 
     trainset = torchvision.datasets.CIFAR10(
-        root='./data', train=True, download=True, transform=transform_train)
+        root='./data', train=True, download=True, transform=transform)
     trainloader = DataLoader(
         trainset, batch_size=batch_size, shuffle=True, num_workers=2)
 
     testset = torchvision.datasets.CIFAR10(
-        root='./data', train=False, download=True, transform=transform_test)
+        root='./data', train=False, download=True, transform=transform)
     testloader = DataLoader(
         testset, batch_size=batch_size, shuffle=False, num_workers=2)
 
@@ -98,12 +90,12 @@ def test(model, testloader, criterion, device):
 
 
 def train_model(model_name, epochs=200, batch_size=128, lr=0.01,
-                target_train_acc=99.99, device='cuda', seed=None,
+                target_train_acc=None, device='cuda', seed=None,
                 weight_decay=5e-4, momentum=0.9, optimizer_name='sgd',
                 lr_schedule=False, lr_milestones=None, lr_gamma=0.1,
                 checkpoint_dir='checkpoints', log_dir='logs'):
     """
-    Train a VGG model until it reaches target train accuracy.
+    Train a VGG model.
     """
     # Set random seed for reproducibility
     if seed is not None:
@@ -190,8 +182,8 @@ def train_model(model_name, epochs=200, batch_size=128, lr=0.01,
                 os.makedirs(checkpoint_dir, exist_ok=True)
                 torch.save(checkpoint, os.path.join(checkpoint_dir, f'{model_name}_best.pth'))
 
-        # Check if target train accuracy reached
-        if train_acc >= target_train_acc and not train_acc_reached:
+        # Check if target train accuracy reached (optional)
+        if target_train_acc is not None and train_acc >= target_train_acc and not train_acc_reached:
             print(f"\n{'*'*50}")
             print(f"Target train accuracy {target_train_acc}% reached!")
             print(f"Epoch: {epoch + 1}, Train Acc: {train_acc:.2f}%")
@@ -213,13 +205,6 @@ def train_model(model_name, epochs=200, batch_size=128, lr=0.01,
     else:
         torch.save(checkpoint, os.path.join(checkpoint_dir, f'{model_name}_final.pth'))
 
-    if not train_acc_reached:
-        print(f"\n{'!'*50}")
-        print(f"WARNING: Target train accuracy {target_train_acc}% NOT reached!")
-        print(f"Final Train Acc: {train_acc:.2f}%")
-        print(f"Consider training for more epochs.")
-        print(f"{'!'*50}\n")
-
     print(f"\nTraining complete for {model_name}")
     print(f"Best Test Acc: {best_test_acc:.2f}%")
     print(f"Final Train Acc: {train_acc:.2f}%")
@@ -239,9 +224,9 @@ def main():
                        help='Batch size (default: 128)')
     parser.add_argument('--lr', type=float, default=0.01,
                        help='Learning rate (default: 0.01)')
-    parser.add_argument('--target_train_acc', '--target-acc', type=float, default=99.99,
+    parser.add_argument('--target_train_acc', '--target-acc', type=float, default=None,
                        dest='target_train_acc',
-                       help='Target train accuracy (default: 99.99)')
+                       help='Target train accuracy (default: None - disabled)')
     parser.add_argument('--device', type=str, default='cuda',
                        help='Device to use (default: cuda)')
     parser.add_argument('--seed', type=int, default=None,
@@ -302,9 +287,13 @@ def main():
     print(f"\n{'='*50}")
     print("Training Summary")
     print(f"{'='*50}")
-    for model_name, acc_reached in results.items():
-        status = "✓" if acc_reached else "✗"
-        print(f"{model_name}: {status} (Target {args.target_train_acc}% train acc)")
+    if args.target_train_acc is not None:
+        for model_name, acc_reached in results.items():
+            status = "✓" if acc_reached else "✗"
+            print(f"{model_name}: {status} (Target {args.target_train_acc}% train acc)")
+    else:
+        for model_name in results.keys():
+            print(f"{model_name}: ✓ Training complete")
     print(f"{'='*50}\n")
 
 
