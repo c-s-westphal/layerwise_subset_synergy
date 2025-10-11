@@ -98,12 +98,28 @@ def test(model, testloader, criterion, device):
 
 
 def train_model(model_name, epochs=200, batch_size=128, lr=0.01,
-                target_train_acc=99.99, device='cuda'):
+                target_train_acc=99.99, device='cuda', seed=None,
+                weight_decay=5e-4, momentum=0.9, optimizer_name='sgd',
+                lr_schedule=False, lr_milestones=None, lr_gamma=0.1,
+                checkpoint_dir='checkpoints', log_dir='logs'):
     """
     Train a VGG model until it reaches target train accuracy.
     """
+    # Set random seed for reproducibility
+    if seed is not None:
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        import numpy as np
+        import random
+        np.random.seed(seed)
+        random.seed(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
     print(f"\n{'='*50}")
     print(f"Training {model_name}")
+    if seed is not None:
+        print(f"Seed: {seed}")
     print(f"{'='*50}\n")
 
     # Initialize model
@@ -121,11 +137,23 @@ def train_model(model_name, epochs=200, batch_size=128, lr=0.01,
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=lr,
-                         momentum=0.9, weight_decay=5e-4)
+
+    if optimizer_name.lower() == 'sgd':
+        optimizer = optim.SGD(model.parameters(), lr=lr,
+                             momentum=momentum, weight_decay=weight_decay)
+    elif optimizer_name.lower() == 'adam':
+        optimizer = optim.Adam(model.parameters(), lr=lr,
+                              weight_decay=weight_decay)
+    else:
+        raise ValueError(f"Unknown optimizer: {optimizer_name}")
 
     # Learning rate scheduler
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    if lr_schedule and lr_milestones is not None:
+        scheduler = optim.lr_scheduler.MultiStepLR(optimizer,
+                                                   milestones=lr_milestones,
+                                                   gamma=lr_gamma)
+    else:
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     best_test_acc = 0
     train_acc_reached = False
@@ -153,8 +181,14 @@ def train_model(model_name, epochs=200, batch_size=128, lr=0.01,
                 'test_acc': test_acc,
                 'optimizer': optimizer.state_dict(),
             }
-            os.makedirs('checkpoints', exist_ok=True)
-            torch.save(checkpoint, f'checkpoints/{model_name}_best.pth')
+            # Save to seed-specific directory if seed is provided
+            if seed is not None:
+                save_dir = os.path.join(checkpoint_dir, f'{model_name}_seed{seed}')
+                os.makedirs(save_dir, exist_ok=True)
+                torch.save(checkpoint, os.path.join(save_dir, 'checkpoint_latest.pth'))
+            else:
+                os.makedirs(checkpoint_dir, exist_ok=True)
+                torch.save(checkpoint, os.path.join(checkpoint_dir, f'{model_name}_best.pth'))
 
         # Check if target train accuracy reached
         if train_acc >= target_train_acc and not train_acc_reached:
@@ -172,7 +206,12 @@ def train_model(model_name, epochs=200, batch_size=128, lr=0.01,
         'test_acc': test_acc,
         'optimizer': optimizer.state_dict(),
     }
-    torch.save(checkpoint, f'checkpoints/{model_name}_final.pth')
+    if seed is not None:
+        save_dir = os.path.join(checkpoint_dir, f'{model_name}_seed{seed}')
+        os.makedirs(save_dir, exist_ok=True)
+        torch.save(checkpoint, os.path.join(save_dir, f'checkpoint_epoch_{epochs}.pth'))
+    else:
+        torch.save(checkpoint, os.path.join(checkpoint_dir, f'{model_name}_final.pth'))
 
     if not train_acc_reached:
         print(f"\n{'!'*50}")
@@ -195,14 +234,35 @@ def main():
                        help='Model to train (default: all)')
     parser.add_argument('--epochs', type=int, default=200,
                        help='Number of epochs (default: 200)')
-    parser.add_argument('--batch-size', type=int, default=128,
+    parser.add_argument('--batch_size', '--batch-size', type=int, default=128,
+                       dest='batch_size',
                        help='Batch size (default: 128)')
     parser.add_argument('--lr', type=float, default=0.01,
                        help='Learning rate (default: 0.01)')
-    parser.add_argument('--target-acc', type=float, default=99.99,
+    parser.add_argument('--target_train_acc', '--target-acc', type=float, default=99.99,
+                       dest='target_train_acc',
                        help='Target train accuracy (default: 99.99)')
     parser.add_argument('--device', type=str, default='cuda',
                        help='Device to use (default: cuda)')
+    parser.add_argument('--seed', type=int, default=None,
+                       help='Random seed for reproducibility (default: None)')
+    parser.add_argument('--weight_decay', type=float, default=5e-4,
+                       help='Weight decay (default: 5e-4)')
+    parser.add_argument('--momentum', type=float, default=0.9,
+                       help='SGD momentum (default: 0.9)')
+    parser.add_argument('--optimizer', type=str, default='sgd',
+                       choices=['sgd', 'adam'],
+                       help='Optimizer (default: sgd)')
+    parser.add_argument('--lr_schedule', action='store_true',
+                       help='Use MultiStepLR scheduler with milestones')
+    parser.add_argument('--lr_milestones', type=int, nargs='+', default=None,
+                       help='Learning rate milestones (default: None)')
+    parser.add_argument('--lr_gamma', type=float, default=0.1,
+                       help='Learning rate decay gamma (default: 0.1)')
+    parser.add_argument('--checkpoint_dir', type=str, default='checkpoints',
+                       help='Checkpoint directory (default: checkpoints)')
+    parser.add_argument('--log_dir', type=str, default='logs',
+                       help='Log directory (default: logs)')
 
     args = parser.parse_args()
 
@@ -224,8 +284,17 @@ def main():
             epochs=args.epochs,
             batch_size=args.batch_size,
             lr=args.lr,
-            target_train_acc=args.target_acc,
-            device=args.device
+            target_train_acc=args.target_train_acc,
+            device=args.device,
+            seed=args.seed,
+            weight_decay=args.weight_decay,
+            momentum=args.momentum,
+            optimizer_name=args.optimizer,
+            lr_schedule=args.lr_schedule,
+            lr_milestones=args.lr_milestones,
+            lr_gamma=args.lr_gamma,
+            checkpoint_dir=args.checkpoint_dir,
+            log_dir=args.log_dir
         )
         results[model_name] = acc_reached
 
@@ -235,7 +304,7 @@ def main():
     print(f"{'='*50}")
     for model_name, acc_reached in results.items():
         status = "✓" if acc_reached else "✗"
-        print(f"{model_name}: {status} (Target {args.target_acc}% train acc)")
+        print(f"{model_name}: {status} (Target {args.target_train_acc}% train acc)")
     print(f"{'='*50}\n")
 
 
