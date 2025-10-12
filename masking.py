@@ -3,16 +3,16 @@ import numpy as np
 from typing import List, Set, Tuple
 
 
-def generate_random_subsets(n_channels: int, n_subsets: int = 100) -> List[Set[int]]:
+def generate_random_subsets(n_weights: int, n_subsets: int = 1000) -> List[Set[int]]:
     """
-    Generate random subsets of channel indices with no duplicates.
+    Generate random subsets of weight indices with no duplicates.
 
     Args:
-        n_channels: Total number of channels in the layer
-        n_subsets: Number of unique random subsets to generate (default: 100)
+        n_weights: Total number of weights in the layer
+        n_subsets: Number of unique random subsets to generate (default: 1000)
 
     Returns:
-        List of sets, where each set contains indices of channels to mask
+        List of sets, where each set contains indices of weights to mask
     """
     subsets = []
     seen_subsets = set()
@@ -23,20 +23,20 @@ def generate_random_subsets(n_channels: int, n_subsets: int = 100) -> List[Set[i
     while len(subsets) < n_subsets and attempts < max_attempts:
         attempts += 1
 
-        # Random subset size from 1 to n_channels
-        subset_size = np.random.randint(1, n_channels + 1)
+        # Random subset size from 1 to n_weights - 1 (leave at least 1 weight)
+        subset_size = np.random.randint(1, n_weights)
 
-        # Randomly select channels to mask
-        channels_to_mask = np.random.choice(
-            n_channels, size=subset_size, replace=False
+        # Randomly select weight indices to mask
+        weights_to_mask = np.random.choice(
+            n_weights, size=subset_size, replace=False
         )
 
         # Convert to frozenset for hashing (to check uniqueness)
-        subset_frozen = frozenset(channels_to_mask)
+        subset_frozen = frozenset(weights_to_mask)
 
         if subset_frozen not in seen_subsets:
             seen_subsets.add(subset_frozen)
-            subsets.append(set(channels_to_mask))
+            subsets.append(set(weights_to_mask))
 
     if len(subsets) < n_subsets:
         print(f"Warning: Could only generate {len(subsets)} unique subsets out of {n_subsets} requested")
@@ -44,9 +44,9 @@ def generate_random_subsets(n_channels: int, n_subsets: int = 100) -> List[Set[i
     return subsets
 
 
-class ChannelMasker:
+class WeightMasker:
     """
-    Handles masking of channels in convolutional layers.
+    Handles masking of individual weights in convolutional layers.
     """
     def __init__(self, model, device='cuda'):
         self.model = model
@@ -67,21 +67,22 @@ class ChannelMasker:
         Get information about each conv layer.
 
         Returns:
-            List of tuples (layer_name, n_channels)
+            List of tuples (layer_name, n_weights)
         """
         info = []
         for name, layer in self.conv_layers:
-            n_channels = layer.out_channels
-            info.append((name, n_channels))
+            # Total weights = out_channels * in_channels * kernel_h * kernel_w
+            n_weights = layer.weight.data.numel()
+            info.append((name, n_weights))
         return info
 
-    def mask_channels(self, layer_idx: int, channels_to_mask: Set[int]):
+    def mask_weights(self, layer_idx: int, weights_to_mask: Set[int]):
         """
-        Mask specified channels in a specific layer by setting their weights to zero.
+        Mask specified weights in a specific layer by setting them to zero.
 
         Args:
             layer_idx: Index of the layer in self.conv_layers
-            channels_to_mask: Set of channel indices to mask
+            weights_to_mask: Set of flattened weight indices to mask
         """
         if layer_idx >= len(self.conv_layers):
             raise ValueError(f"Layer index {layer_idx} out of range")
@@ -92,10 +93,12 @@ class ChannelMasker:
         if layer_name not in self.original_weights:
             self.original_weights[layer_name] = layer.weight.data.clone()
 
-        # Mask the specified channels
+        # Flatten weights, mask specified indices, then reshape
         with torch.no_grad():
-            for channel_idx in channels_to_mask:
-                layer.weight.data[channel_idx] = 0
+            weight_flat = layer.weight.data.view(-1)
+            for weight_idx in weights_to_mask:
+                weight_flat[weight_idx] = 0
+            layer.weight.data = weight_flat.view(layer.weight.data.shape)
 
     def unmask_layer(self, layer_idx: int):
         """
@@ -120,24 +123,24 @@ class ChannelMasker:
 
 
 def forward_with_mask(model, dataloader, layer_idx: int,
-                     channels_to_mask: Set[int], device='cuda') -> Tuple[np.ndarray, np.ndarray]:
+                     weights_to_mask: Set[int], device='cuda') -> Tuple[np.ndarray, np.ndarray]:
     """
-    Perform forward pass with masked channels and collect predictions.
+    Perform forward pass with masked weights and collect predictions.
 
     Args:
         model: The neural network model
         dataloader: DataLoader for the dataset
         layer_idx: Index of the layer to mask
-        channels_to_mask: Set of channel indices to mask
+        weights_to_mask: Set of weight indices to mask
         device: Device to run on
 
     Returns:
         Tuple of (predictions, true_labels) as numpy arrays
     """
-    masker = ChannelMasker(model, device)
+    masker = WeightMasker(model, device)
 
     # Apply mask
-    masker.mask_channels(layer_idx, channels_to_mask)
+    masker.mask_weights(layer_idx, weights_to_mask)
 
     # Forward pass
     model.eval()
