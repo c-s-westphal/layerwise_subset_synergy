@@ -67,15 +67,12 @@ def evaluate_layer_masking(model, trainloader, layer_idx, masker, n_subsets=1000
         device: Device to run on
 
     Returns:
-        List of predictions for each subset, true labels
+        Tuple of (mean_mi, std_mi, n_channels)
     """
     layer_name, n_channels = masker.get_layer_info()[layer_idx]
 
-    print(f"  Layer {layer_idx}: {layer_name} ({n_channels} channels)")
-
     # Generate random subsets
     subsets = generate_random_subsets(n_channels, n_subsets)
-    print(f"  Generated {len(subsets)} unique random subsets")
 
     # Get true labels (only need to do this once)
     true_labels = []
@@ -83,16 +80,20 @@ def evaluate_layer_masking(model, trainloader, layer_idx, masker, n_subsets=1000
         true_labels.extend(labels.numpy())
     true_labels = np.array(true_labels)
 
-    # Collect predictions for each subset
+    # Collect predictions for each subset (without progress bar)
     all_predictions = []
 
-    for subset_idx, channels_to_mask in enumerate(tqdm(subsets, desc=f"  Masking subsets")):
+    for channels_to_mask in subsets:
         predictions, _ = forward_with_masked_activations(
             model, trainloader, layer_idx, channels_to_mask, masker, device
         )
         all_predictions.append(predictions)
 
-    return all_predictions, true_labels
+    # Calculate MI for this layer
+    from mutual_information import calculate_average_mi
+    mean_mi, std_mi = calculate_average_mi(all_predictions, true_labels)
+
+    return mean_mi, std_mi, n_channels
 
 
 def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
@@ -132,20 +133,21 @@ def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
     print()
 
     # Evaluate each layer
-    predictions_by_layer = {}
+    mi_results = {}
 
     for layer_idx in range(len(layer_info)):
-        print(f"Evaluating layer {layer_idx}...")
-        predictions, labels = evaluate_layer_masking(
+        layer_name, n_channels = layer_info[layer_idx]
+        print(f"Evaluating layer {layer_idx}: {layer_name} ({n_channels} channels)...", end=' ', flush=True)
+
+        mean_mi, std_mi, _ = evaluate_layer_masking(
             model, trainloader, layer_idx, masker, n_subsets, device
         )
-        predictions_by_layer[layer_idx] = predictions
+        mi_results[layer_idx] = (mean_mi, std_mi)
 
-    # Calculate MI for each layer
-    print("\nCalculating mutual information...")
-    mi_results = calculate_mi_per_layer(predictions_by_layer, labels)
+        # Print MI immediately after layer is done
+        print(f"MI = {mean_mi:.4f} ± {std_mi:.4f}")
 
-    # Print results
+    # Print summary table
     print(f"\n{'='*60}")
     print(f"Results for {model_name}")
     print(f"{'='*60}")
