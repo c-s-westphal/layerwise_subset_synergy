@@ -1,18 +1,18 @@
 import torch
 import numpy as np
-from typing import List, Set, Tuple
+from typing import List, Set, Tuple, Dict
 
 
-def generate_random_subsets(n_weights: int, n_subsets: int = 1000) -> List[Set[int]]:
+def generate_random_subsets(n_channels: int, n_subsets: int = 1000) -> List[Set[int]]:
     """
-    Generate random subsets of weight indices with no duplicates.
+    Generate random subsets of channel indices with no duplicates.
 
     Args:
-        n_weights: Total number of weights in the layer
+        n_channels: Total number of channels in the layer
         n_subsets: Number of unique random subsets to generate (default: 1000)
 
     Returns:
-        List of sets, where each set contains indices of weights to mask
+        List of sets, where each set contains indices of channels to mask
     """
     subsets = []
     seen_subsets = set()
@@ -23,20 +23,20 @@ def generate_random_subsets(n_weights: int, n_subsets: int = 1000) -> List[Set[i
     while len(subsets) < n_subsets and attempts < max_attempts:
         attempts += 1
 
-        # Random subset size from 1 to n_weights - 1 (leave at least 1 weight)
-        subset_size = np.random.randint(1, n_weights)
+        # Random subset size from 1 to n_channels - 1 (leave at least 1 channel)
+        subset_size = np.random.randint(1, n_channels)
 
-        # Randomly select weight indices to mask
-        weights_to_mask = np.random.choice(
-            n_weights, size=subset_size, replace=False
+        # Randomly select channel indices to mask
+        channels_to_mask = np.random.choice(
+            n_channels, size=subset_size, replace=False
         )
 
         # Convert to frozenset for hashing (to check uniqueness)
-        subset_frozen = frozenset(weights_to_mask)
+        subset_frozen = frozenset(channels_to_mask)
 
         if subset_frozen not in seen_subsets:
             seen_subsets.add(subset_frozen)
-            subsets.append(set(weights_to_mask))
+            subsets.append(set(channels_to_mask))
 
     if len(subsets) < n_subsets:
         print(f"Warning: Could only generate {len(subsets)} unique subsets out of {n_subsets} requested")
@@ -44,17 +44,20 @@ def generate_random_subsets(n_weights: int, n_subsets: int = 1000) -> List[Set[i
     return subsets
 
 
-class WeightMasker:
+class ActivationMasker:
     """
-    Handles masking of individual weights in convolutional layers.
+    Handles masking of channel activations in convolutional layers using hooks.
     """
     def __init__(self, model, device='cuda'):
         self.model = model
         self.device = device
-        self.original_weights = {}
         self.conv_layers = self._get_conv_layers()
+        self.activation_stats = {}  # Store min/max per layer
+        self.hook_handle = None
+        self.channels_to_mask = None
+        self.noise_range = None
 
-    def _get_conv_layers(self) -> List[torch.nn.Conv2d]:
+    def _get_conv_layers(self) -> List[Tuple[str, torch.nn.Conv2d]]:
         """Get all convolutional layers from the model."""
         conv_layers = []
         for name, module in self.model.named_modules():
@@ -67,80 +70,136 @@ class WeightMasker:
         Get information about each conv layer.
 
         Returns:
-            List of tuples (layer_name, n_weights)
+            List of tuples (layer_name, n_output_channels)
         """
         info = []
         for name, layer in self.conv_layers:
-            # Total weights = out_channels * in_channels * kernel_h * kernel_w
-            n_weights = layer.weight.data.numel()
-            info.append((name, n_weights))
+            n_channels = layer.out_channels
+            info.append((name, n_channels))
         return info
 
-    def mask_weights(self, layer_idx: int, weights_to_mask: Set[int]):
+    def compute_activation_stats(self, dataloader, layer_idx: int):
         """
-        Mask specified weights in a specific layer by setting them to zero.
+        Compute min/max activation values for a specific layer.
 
         Args:
+            dataloader: DataLoader for the dataset
             layer_idx: Index of the layer in self.conv_layers
-            weights_to_mask: Set of flattened weight indices to mask
         """
         if layer_idx >= len(self.conv_layers):
             raise ValueError(f"Layer index {layer_idx} out of range")
 
         layer_name, layer = self.conv_layers[layer_idx]
 
-        # Save original weights if not already saved
-        if layer_name not in self.original_weights:
-            self.original_weights[layer_name] = layer.weight.data.clone()
+        # Skip if already computed
+        if layer_name in self.activation_stats:
+            return
 
-        # Flatten weights, mask specified indices, then reshape
+        # Collect activations
+        activations = []
+
+        def hook_fn(module, input, output):
+            activations.append(output.detach().cpu())
+
+        # Register hook
+        handle = layer.register_forward_hook(hook_fn)
+
+        # Forward pass on a subset of data to get statistics
+        self.model.eval()
         with torch.no_grad():
-            weight_flat = layer.weight.data.view(-1)
-            for weight_idx in weights_to_mask:
-                weight_flat[weight_idx] = 0
-            layer.weight.data = weight_flat.view(layer.weight.data.shape)
+            for i, (inputs, _) in enumerate(dataloader):
+                if i >= 10:  # Use first 10 batches for stats
+                    break
+                inputs = inputs.to(self.device)
+                _ = self.model(inputs)
 
-    def unmask_layer(self, layer_idx: int):
+        # Remove hook
+        handle.remove()
+
+        # Compute min/max across all collected activations
+        all_activations = torch.cat(activations, dim=0)
+        layer_min = all_activations.min().item()
+        layer_max = all_activations.max().item()
+
+        self.activation_stats[layer_name] = (layer_min, layer_max)
+        print(f"  Computed activation range for {layer_name}: [{layer_min:.4f}, {layer_max:.4f}]")
+
+    def _masking_hook(self, module, input, output):
         """
-        Restore original weights for a specific layer.
+        Hook function that masks selected channels with uniform noise.
+        """
+        if self.channels_to_mask is None or self.noise_range is None:
+            return output
+
+        # Clone output to avoid in-place modification issues
+        masked_output = output.clone()
+
+        # Replace selected channels with uniform noise
+        for channel_idx in self.channels_to_mask:
+            noise = torch.empty_like(masked_output[:, channel_idx, :, :]).uniform_(
+                self.noise_range[0], self.noise_range[1]
+            )
+            masked_output[:, channel_idx, :, :] = noise
+
+        return masked_output
+
+    def mask_activations(self, layer_idx: int, channels_to_mask: Set[int]):
+        """
+        Set up masking for specified channels in a layer.
 
         Args:
             layer_idx: Index of the layer in self.conv_layers
+            channels_to_mask: Set of channel indices to mask
         """
         if layer_idx >= len(self.conv_layers):
             raise ValueError(f"Layer index {layer_idx} out of range")
 
         layer_name, layer = self.conv_layers[layer_idx]
 
-        if layer_name in self.original_weights:
-            with torch.no_grad():
-                layer.weight.data = self.original_weights[layer_name].clone()
+        # Ensure we have activation statistics
+        if layer_name not in self.activation_stats:
+            raise ValueError(f"Must compute activation stats for {layer_name} first")
 
-    def unmask_all(self):
-        """Restore all layers to their original weights."""
-        for layer_idx in range(len(self.conv_layers)):
-            self.unmask_layer(layer_idx)
+        # Store masking configuration
+        self.channels_to_mask = channels_to_mask
+        self.noise_range = self.activation_stats[layer_name]
+
+        # Remove existing hook if any
+        if self.hook_handle is not None:
+            self.hook_handle.remove()
+
+        # Register new hook
+        self.hook_handle = layer.register_forward_hook(self._masking_hook)
+
+    def remove_hook(self):
+        """Remove the masking hook."""
+        if self.hook_handle is not None:
+            self.hook_handle.remove()
+            self.hook_handle = None
+        self.channels_to_mask = None
+        self.noise_range = None
 
 
-def forward_with_mask(model, dataloader, layer_idx: int,
-                     weights_to_mask: Set[int], device='cuda') -> Tuple[np.ndarray, np.ndarray]:
+def forward_with_masked_activations(model, dataloader, layer_idx: int,
+                                     channels_to_mask: Set[int],
+                                     masker: ActivationMasker,
+                                     device='cuda') -> Tuple[np.ndarray, np.ndarray]:
     """
-    Perform forward pass with masked weights and collect predictions.
+    Perform forward pass with masked channel activations and collect predictions.
 
     Args:
         model: The neural network model
         dataloader: DataLoader for the dataset
         layer_idx: Index of the layer to mask
-        weights_to_mask: Set of weight indices to mask
+        channels_to_mask: Set of channel indices to mask
+        masker: ActivationMasker instance with computed stats
         device: Device to run on
 
     Returns:
         Tuple of (predictions, true_labels) as numpy arrays
     """
-    masker = WeightMasker(model, device)
-
-    # Apply mask
-    masker.mask_weights(layer_idx, weights_to_mask)
+    # Set up masking hook
+    masker.mask_activations(layer_idx, channels_to_mask)
 
     # Forward pass
     model.eval()
@@ -156,7 +215,7 @@ def forward_with_mask(model, dataloader, layer_idx: int,
             all_predictions.extend(predicted.cpu().numpy())
             all_labels.extend(labels.numpy())
 
-    # Unmask
-    masker.unmask_layer(layer_idx)
+    # Remove hook
+    masker.remove_hook()
 
     return np.array(all_predictions), np.array(all_labels)

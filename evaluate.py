@@ -10,7 +10,7 @@ from tqdm import tqdm
 import numpy as np
 
 from models import vgg11, vgg13, vgg16, vgg19
-from masking import WeightMasker, generate_random_subsets, forward_with_mask
+from masking import ActivationMasker, generate_random_subsets, forward_with_masked_activations
 from mutual_information import calculate_mi_per_layer
 
 
@@ -54,27 +54,27 @@ def load_model(model_name, checkpoint_path, device='cuda'):
     return model
 
 
-def evaluate_layer_masking(model, trainloader, layer_idx, n_subsets=1000, device='cuda'):
+def evaluate_layer_masking(model, trainloader, layer_idx, masker, n_subsets=1000, device='cuda'):
     """
-    Evaluate a single layer by masking random subsets of weights.
+    Evaluate a single layer by masking random subsets of activation channels.
 
     Args:
         model: Trained model
         trainloader: Train data loader
         layer_idx: Index of the layer to evaluate
+        masker: ActivationMasker instance with computed stats
         n_subsets: Number of random subsets to test
         device: Device to run on
 
     Returns:
         List of predictions for each subset, true labels
     """
-    masker = WeightMasker(model, device)
-    layer_name, n_weights = masker.get_layer_info()[layer_idx]
+    layer_name, n_channels = masker.get_layer_info()[layer_idx]
 
-    print(f"  Layer {layer_idx}: {layer_name} ({n_weights} weights)")
+    print(f"  Layer {layer_idx}: {layer_name} ({n_channels} channels)")
 
     # Generate random subsets
-    subsets = generate_random_subsets(n_weights, n_subsets)
+    subsets = generate_random_subsets(n_channels, n_subsets)
     print(f"  Generated {len(subsets)} unique random subsets")
 
     # Get true labels (only need to do this once)
@@ -86,9 +86,9 @@ def evaluate_layer_masking(model, trainloader, layer_idx, n_subsets=1000, device
     # Collect predictions for each subset
     all_predictions = []
 
-    for subset_idx, weights_to_mask in enumerate(tqdm(subsets, desc=f"  Masking subsets")):
-        predictions, _ = forward_with_mask(
-            model, trainloader, layer_idx, weights_to_mask, device
+    for subset_idx, channels_to_mask in enumerate(tqdm(subsets, desc=f"  Masking subsets")):
+        predictions, _ = forward_with_masked_activations(
+            model, trainloader, layer_idx, channels_to_mask, masker, device
         )
         all_predictions.append(predictions)
 
@@ -98,7 +98,7 @@ def evaluate_layer_masking(model, trainloader, layer_idx, n_subsets=1000, device
 def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
                    batch_size=128, device='cuda'):
     """
-    Evaluate a trained model by masking weights in each layer.
+    Evaluate a trained model by masking activation channels in each layer.
 
     Args:
         model_name: Name of the model (vgg11, vgg13, vgg16, vgg19)
@@ -118,11 +118,17 @@ def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
     model = load_model(model_name, checkpoint_path, device)
     trainloader = get_cifar10_train_loader(batch_size)
 
-    # Get layer info
-    masker = WeightMasker(model, device)
+    # Initialize masker
+    masker = ActivationMasker(model, device)
     layer_info = masker.get_layer_info()
 
     print(f"\nFound {len(layer_info)} convolutional layers")
+    print()
+
+    # Compute activation statistics for all layers
+    print("Computing activation statistics...")
+    for layer_idx in range(len(layer_info)):
+        masker.compute_activation_stats(trainloader, layer_idx)
     print()
 
     # Evaluate each layer
@@ -131,7 +137,7 @@ def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
     for layer_idx in range(len(layer_info)):
         print(f"Evaluating layer {layer_idx}...")
         predictions, labels = evaluate_layer_masking(
-            model, trainloader, layer_idx, n_subsets, device
+            model, trainloader, layer_idx, masker, n_subsets, device
         )
         predictions_by_layer[layer_idx] = predictions
 
@@ -143,12 +149,12 @@ def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
     print(f"\n{'='*60}")
     print(f"Results for {model_name}")
     print(f"{'='*60}")
-    print(f"{'Layer':<8} {'Name':<30} {'Weights':<10} {'MI (mean ± std)'}")
+    print(f"{'Layer':<8} {'Name':<30} {'Channels':<10} {'MI (mean ± std)'}")
     print(f"{'-'*60}")
 
-    for layer_idx, (layer_name, n_weights) in enumerate(layer_info):
+    for layer_idx, (layer_name, n_channels) in enumerate(layer_info):
         mean_mi, std_mi = mi_results[layer_idx]
-        print(f"{layer_idx:<8} {layer_name:<30} {n_weights:<10} {mean_mi:.4f} ± {std_mi:.4f}")
+        print(f"{layer_idx:<8} {layer_name:<30} {n_channels:<10} {mean_mi:.4f} ± {std_mi:.4f}")
 
     print(f"{'='*60}\n")
 
@@ -160,12 +166,12 @@ def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
         'layers': []
     }
 
-    for layer_idx, (layer_name, n_weights) in enumerate(layer_info):
+    for layer_idx, (layer_name, n_channels) in enumerate(layer_info):
         mean_mi, std_mi = mi_results[layer_idx]
         results['layers'].append({
             'layer_idx': layer_idx,
             'layer_name': layer_name,
-            'n_weights': n_weights,
+            'n_channels': n_channels,
             'mean_mi': float(mean_mi),
             'std_mi': float(std_mi)
         })
