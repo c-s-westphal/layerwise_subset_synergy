@@ -60,7 +60,7 @@ python3.9 -u train.py \
     --optimizer sgd \
     --momentum 0.9 \
     --lr_schedule \
-    --lr_milestones 150 225 \
+    --lr_milestones 100 150 \
     --lr_gamma 0.1 \
     --checkpoint_dir checkpoints \
     --log_dir logs
