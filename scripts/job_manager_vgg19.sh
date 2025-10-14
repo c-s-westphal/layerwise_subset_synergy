@@ -7,7 +7,7 @@
 #$ -S /bin/bash
 #$ -j y
 #$ -N vgg19
-#$ -t 1-3
+#$ -t 1-10
 set -euo pipefail
 
 hostname
@@ -89,7 +89,7 @@ echo "Found checkpoint: $checkpoint_file"
 python3.9 -u evaluate.py \
     --checkpoint "$checkpoint_file" \
     --model vgg19 \
-    --n_subsets 1000 \
+    --n_subsets 100 \
     --output_dir data \
     --device cuda \
     --seed $seed
