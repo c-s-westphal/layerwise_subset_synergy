@@ -5,17 +5,16 @@ import torch.nn as nn
 class VGG(nn.Module):
     """
     VGG model for CIFAR-10 (32x32 images instead of 224x224 ImageNet)
+    Standard architecture with one hidden layer classifier.
     """
     def __init__(self, vgg_name, num_classes=10):
         super(VGG, self).__init__()
         self.features = self._make_layers(cfg[vgg_name])
+        # Standard VGG classifier: one hidden layer with dropout
         self.classifier = nn.Sequential(
             nn.Linear(512, 512),
             nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(512, 512),
-            nn.ReLU(True),
-            nn.Dropout(),
+            nn.Dropout(p=0.5),
             nn.Linear(512, num_classes),
         )
 
