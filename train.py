@@ -98,7 +98,7 @@ def test(model, testloader, criterion, device):
 
 
 def train_model(model_name, epochs=500, batch_size=128, lr=0.001,
-                target_train_acc=99.0, device='cuda', seed=None,
+                target_train_acc=95.0, device='cuda', seed=None,
                 checkpoint_dir='checkpoints', log_dir='logs'):
     """
     Train a VGG model.
@@ -217,9 +217,9 @@ def main():
                        help='Batch size (default: 128)')
     parser.add_argument('--lr', type=float, default=0.001,
                        help='Learning rate for AdamW (default: 0.001)')
-    parser.add_argument('--target_train_acc', '--target-acc', type=float, default=99.0,
+    parser.add_argument('--target_train_acc', '--target-acc', type=float, default=95.0,
                        dest='target_train_acc',
-                       help='Target train accuracy for early stopping (default: 99.0)')
+                       help='Target train accuracy for early stopping (default: 95.0)')
     parser.add_argument('--device', type=str, default='cuda',
                        help='Device to use (default: cuda)')
     parser.add_argument('--seed', type=int, default=None,
