@@ -53,15 +53,10 @@ echo "Starting training..."
 python3.9 -u train.py \
     --model vgg13 \
     --seed $seed \
-    --epochs 200 \
+    --epochs 500 \
     --batch_size 128 \
-    --lr 0.1 \
-    --weight_decay 5e-4 \
-    --optimizer sgd \
-    --momentum 0.9 \
-    --lr_schedule \
-    --lr_milestones 100 150 \
-    --lr_gamma 0.1 \
+    --lr 0.001 \
+    --target_train_acc 99.0 \
     --checkpoint_dir checkpoints \
     --log_dir logs
 
