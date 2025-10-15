@@ -54,7 +54,41 @@ def load_model(model_name, checkpoint_path, device='cuda'):
     return model
 
 
-def evaluate_layer_masking(model, trainloader, layer_idx, masker, n_subsets=1000, device='cuda'):
+def get_baseline_mi(model, trainloader, device='cuda'):
+    """
+    Calculate MI for the unmasked (baseline) model.
+
+    Args:
+        model: Trained model
+        trainloader: Train data loader
+        device: Device to run on
+
+    Returns:
+        Baseline MI: I(Y; Ŷ_full)
+    """
+    model.eval()
+    all_predictions = []
+    true_labels = []
+
+    with torch.no_grad():
+        for inputs, labels in trainloader:
+            inputs = inputs.to(device)
+            outputs = model(inputs)
+            _, predicted = outputs.max(1)
+
+            all_predictions.extend(predicted.cpu().numpy())
+            true_labels.extend(labels.numpy())
+
+    all_predictions = np.array(all_predictions)
+    true_labels = np.array(true_labels)
+
+    from mutual_information import calculate_mutual_information
+    baseline_mi = calculate_mutual_information(true_labels, all_predictions)
+
+    return baseline_mi
+
+
+def evaluate_layer_masking(model, trainloader, layer_idx, masker, baseline_mi, n_subsets=1000, device='cuda'):
     """
     Evaluate a single layer by masking random subsets of activation channels.
 
@@ -63,11 +97,12 @@ def evaluate_layer_masking(model, trainloader, layer_idx, masker, n_subsets=1000
         trainloader: Train data loader
         layer_idx: Index of the layer to evaluate
         masker: ActivationMasker instance with computed stats
+        baseline_mi: Baseline MI from unmasked model (I(Y; Ŷ_full))
         n_subsets: Number of random subsets to test
         device: Device to run on
 
     Returns:
-        Tuple of (mean_mi, std_mi, n_channels)
+        Tuple of (mean_delta_mi, std_delta_mi, mean_masked_mi, std_masked_mi, n_channels)
     """
     layer_name, n_channels = masker.get_layer_info()[layer_idx]
 
@@ -91,9 +126,13 @@ def evaluate_layer_masking(model, trainloader, layer_idx, masker, n_subsets=1000
 
     # Calculate MI for this layer
     from mutual_information import calculate_average_mi
-    mean_mi, std_mi = calculate_average_mi(all_predictions, true_labels)
+    mean_masked_mi, std_masked_mi = calculate_average_mi(all_predictions, true_labels)
 
-    return mean_mi, std_mi, n_channels
+    # Calculate delta: baseline - masked (information lost)
+    mean_delta_mi = baseline_mi - mean_masked_mi
+    std_delta_mi = std_masked_mi  # Std remains the same
+
+    return mean_delta_mi, std_delta_mi, mean_masked_mi, std_masked_mi, n_channels
 
 
 def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
@@ -119,6 +158,11 @@ def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
     model = load_model(model_name, checkpoint_path, device)
     trainloader = get_cifar10_train_loader(batch_size)
 
+    # Calculate baseline MI (unmasked model)
+    print("Calculating baseline MI (unmasked model)...", end=' ', flush=True)
+    baseline_mi = get_baseline_mi(model, trainloader, device)
+    print(f"Baseline MI = {baseline_mi:.4f}")
+
     # Initialize masker
     masker = ActivationMasker(model, device)
     layer_info = masker.get_layer_info()
@@ -139,24 +183,26 @@ def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
         layer_name, n_channels = layer_info[layer_idx]
         print(f"Evaluating layer {layer_idx}: {layer_name} ({n_channels} channels)...", end=' ', flush=True)
 
-        mean_mi, std_mi, _ = evaluate_layer_masking(
-            model, trainloader, layer_idx, masker, n_subsets, device
+        mean_delta_mi, std_delta_mi, mean_masked_mi, std_masked_mi, _ = evaluate_layer_masking(
+            model, trainloader, layer_idx, masker, baseline_mi, n_subsets, device
         )
-        mi_results[layer_idx] = (mean_mi, std_mi)
+        mi_results[layer_idx] = (mean_delta_mi, std_delta_mi, mean_masked_mi, std_masked_mi)
 
         # Print MI immediately after layer is done
-        print(f"MI = {mean_mi:.4f} ± {std_mi:.4f}")
+        print(f"ΔMI = {mean_delta_mi:.4f} ± {std_delta_mi:.4f} (masked MI = {mean_masked_mi:.4f})")
 
     # Print summary table
     print(f"\n{'='*60}")
     print(f"Results for {model_name}")
     print(f"{'='*60}")
-    print(f"{'Layer':<8} {'Name':<30} {'Channels':<10} {'MI (mean ± std)'}")
+    print(f"Baseline MI (unmasked): {baseline_mi:.4f}")
+    print(f"{'-'*60}")
+    print(f"{'Layer':<8} {'Name':<20} {'Channels':<10} {'ΔMI (mean ± std)':<25} {'Masked MI'}")
     print(f"{'-'*60}")
 
     for layer_idx, (layer_name, n_channels) in enumerate(layer_info):
-        mean_mi, std_mi = mi_results[layer_idx]
-        print(f"{layer_idx:<8} {layer_name:<30} {n_channels:<10} {mean_mi:.4f} ± {std_mi:.4f}")
+        mean_delta_mi, std_delta_mi, mean_masked_mi, std_masked_mi = mi_results[layer_idx]
+        print(f"{layer_idx:<8} {layer_name:<20} {n_channels:<10} {mean_delta_mi:.4f} ± {std_delta_mi:.4f}        {mean_masked_mi:.4f}")
 
     print(f"{'='*60}\n")
 
@@ -165,17 +211,20 @@ def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
         'model_name': model_name,
         'checkpoint_path': checkpoint_path,
         'n_subsets': n_subsets,
+        'baseline_mi': float(baseline_mi),
         'layers': []
     }
 
     for layer_idx, (layer_name, n_channels) in enumerate(layer_info):
-        mean_mi, std_mi = mi_results[layer_idx]
+        mean_delta_mi, std_delta_mi, mean_masked_mi, std_masked_mi = mi_results[layer_idx]
         results['layers'].append({
             'layer_idx': layer_idx,
             'layer_name': layer_name,
             'n_channels': n_channels,
-            'mean_mi': float(mean_mi),
-            'std_mi': float(std_mi)
+            'mean_delta_mi': float(mean_delta_mi),
+            'std_delta_mi': float(std_delta_mi),
+            'mean_masked_mi': float(mean_masked_mi),
+            'std_masked_mi': float(std_masked_mi)
         })
 
     return results

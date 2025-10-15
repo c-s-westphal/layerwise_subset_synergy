@@ -16,9 +16,11 @@ def load_results(data_dir='data', architectures=['vgg11', 'vgg13', 'vgg16', 'vgg
     Load MI results from JSON files.
 
     Returns:
-        dict: {architecture: {layer_idx: {'mean_mi': [...], 'std_mi': [...], 'layer_name': str}}}
+        dict: {architecture: {layer_idx: {'mean_delta_mi': [...], 'std_delta_mi': [...],
+                                          'baseline_mi': [...], 'layer_name': str}}}
     """
-    results = defaultdict(lambda: defaultdict(lambda: {'mean_mi': [], 'std_mi': [], 'layer_name': None}))
+    results = defaultdict(lambda: defaultdict(lambda: {'mean_delta_mi': [], 'std_delta_mi': [],
+                                                        'baseline_mi': [], 'layer_name': None}))
 
     for arch in architectures:
         pattern = f"{data_dir}/mi_results_{arch}_seed*.json"
@@ -39,8 +41,9 @@ def load_results(data_dir='data', architectures=['vgg11', 'vgg13', 'vgg16', 'vgg
 
             for layer in arch_data['layers']:
                 layer_idx = layer['layer_idx']
-                results[arch][layer_idx]['mean_mi'].append(layer['mean_mi'])
-                results[arch][layer_idx]['std_mi'].append(layer['std_mi'])
+                results[arch][layer_idx]['mean_delta_mi'].append(layer['mean_delta_mi'])
+                results[arch][layer_idx]['std_delta_mi'].append(layer['std_delta_mi'])
+                results[arch][layer_idx]['baseline_mi'].append(arch_data['baseline_mi'])
 
                 if results[arch][layer_idx]['layer_name'] is None:
                     results[arch][layer_idx]['layer_name'] = layer['layer_name']
@@ -51,38 +54,33 @@ def load_results(data_dir='data', architectures=['vgg11', 'vgg13', 'vgg16', 'vgg
 def plot_mi_progression(results, output_path='plots/mi_progression.png'):
     """
     Plot MI progression through layers for all architectures.
-    Values are transformed as ln(10) - MI to show decreasing synergy.
+    Values show ΔMI = I(Y; Ŷ_full) - I(Y; Ŷ_masked), the information lost due to masking.
     """
     fig, ax = plt.subplots(figsize=(12, 6))
 
     colors = {'vgg11': '#1f77b4', 'vgg13': '#ff7f0e', 'vgg16': '#2ca02c', 'vgg19': '#d62728'}
     markers = {'vgg11': 'o', 'vgg13': 's', 'vgg16': '^', 'vgg19': 'D'}
 
-    ln_10 = np.log(10)
-
     for arch in sorted(results.keys()):
         layer_indices = sorted(results[arch].keys())
 
-        mean_mis = []
-        std_mis = []
+        mean_delta_mis = []
+        std_delta_mis = []
 
         for layer_idx in layer_indices:
             # Average across seeds
-            mean_mi = np.mean(results[arch][layer_idx]['mean_mi'])
+            mean_delta_mi = np.mean(results[arch][layer_idx]['mean_delta_mi'])
             # Std across seeds
-            std_mi = np.std(results[arch][layer_idx]['mean_mi'])
+            std_delta_mi = np.std(results[arch][layer_idx]['mean_delta_mi'])
 
-            mean_mis.append(mean_mi)
-            std_mis.append(std_mi)
+            mean_delta_mis.append(mean_delta_mi)
+            std_delta_mis.append(std_delta_mi)
 
-        mean_mis = np.array(mean_mis)
-        std_mis = np.array(std_mis)
+        mean_delta_mis = np.array(mean_delta_mis)
+        std_delta_mis = np.array(std_delta_mis)
 
-        # Transform: ln(10) - MI
-        transformed_mean = ln_10 - mean_mis
-
-        # Plot with error bars
-        ax.plot(layer_indices, transformed_mean,
+        # Plot with error bars (no transformation needed)
+        ax.plot(layer_indices, mean_delta_mis,
                 marker=markers.get(arch, 'o'),
                 color=colors.get(arch, None),
                 linewidth=2,
@@ -91,14 +89,14 @@ def plot_mi_progression(results, output_path='plots/mi_progression.png'):
                 alpha=0.8)
 
         ax.fill_between(layer_indices,
-                        transformed_mean - std_mis,
-                        transformed_mean + std_mis,
+                        mean_delta_mis - std_delta_mis,
+                        mean_delta_mis + std_delta_mis,
                         color=colors.get(arch, None),
                         alpha=0.2)
 
     ax.set_xlabel('Layer Index', fontsize=12)
-    ax.set_ylabel('ln(10) - MI (bits)', fontsize=12)
-    ax.set_title('Synergy Progression Through Layers', fontsize=14, fontweight='bold')
+    ax.set_ylabel('ΔMI = I(Y; Ŷ_full) - I(Y; Ŷ_masked) (nats)', fontsize=12)
+    ax.set_title('Information Lost by Masking Across Layers', fontsize=14, fontweight='bold')
     ax.legend(fontsize=11, loc='best')
     ax.grid(True, alpha=0.3)
 
@@ -116,17 +114,21 @@ def print_summary_stats(results):
     print("="*80)
 
     for arch in sorted(results.keys()):
+        # Get baseline MI (should be same across all layers for a given arch)
+        baseline_mi = np.mean(results[arch][0]['baseline_mi'])
+
         print(f"\n{arch.upper()}:")
-        print(f"{'Layer':<15} {'Layer Name':<20} {'Mean MI':<12} {'Std (across seeds)':<20}")
+        print(f"Baseline MI (unmasked): {baseline_mi:.4f}")
+        print(f"{'Layer':<15} {'Layer Name':<20} {'Mean ΔMI':<12} {'Std (across seeds)':<20}")
         print("-" * 80)
 
         layer_indices = sorted(results[arch].keys())
         for layer_idx in layer_indices:
             layer_name = results[arch][layer_idx]['layer_name']
-            mean_mi = np.mean(results[arch][layer_idx]['mean_mi'])
-            std_mi = np.std(results[arch][layer_idx]['mean_mi'])
+            mean_delta_mi = np.mean(results[arch][layer_idx]['mean_delta_mi'])
+            std_delta_mi = np.std(results[arch][layer_idx]['mean_delta_mi'])
 
-            print(f"{layer_idx:<15} {layer_name:<20} {mean_mi:<12.4f} {std_mi:<20.4f}")
+            print(f"{layer_idx:<15} {layer_name:<20} {mean_delta_mi:<12.4f} {std_delta_mi:<20.4f}")
 
 
 if __name__ == '__main__':
