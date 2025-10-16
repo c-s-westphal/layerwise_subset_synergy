@@ -46,100 +46,78 @@ def generate_random_subsets(n_channels: int, n_subsets: int = 1000) -> List[Set[
 
 class ActivationMasker:
     """
-    Handles masking of channel activations in convolutional layers using hooks.
+    Handles masking of channel activations after ReLU layers using hooks.
     """
     def __init__(self, model, device='cuda'):
         self.model = model
         self.device = device
-        self.conv_layers = self._get_conv_layers()
-        self.activation_stats = {}  # Store min/max per layer
+        self.relu_layers = self._get_relu_layers()
+        self.activation_stats = {}  # No longer needed but kept for compatibility
         self.hook_handle = None
         self.channels_to_mask = None
-        self.noise_range = None
+        self.noise_range = None  # No longer needed but kept for compatibility
 
-    def _get_conv_layers(self) -> List[Tuple[str, torch.nn.Conv2d]]:
-        """Get all convolutional layers from the model."""
-        conv_layers = []
+    def _get_relu_layers(self) -> List[Tuple[str, torch.nn.ReLU]]:
+        """Get all ReLU layers from the model (after Conv2d and BN)."""
+        relu_layers = []
         for name, module in self.model.named_modules():
-            if isinstance(module, torch.nn.Conv2d):
-                conv_layers.append((name, module))
-        return conv_layers
+            if isinstance(module, torch.nn.ReLU):
+                relu_layers.append((name, module))
+        return relu_layers
 
     def get_layer_info(self) -> List[Tuple[str, int]]:
         """
-        Get information about each conv layer.
+        Get information about each ReLU layer.
 
         Returns:
             List of tuples (layer_name, n_output_channels)
         """
         info = []
-        for name, layer in self.conv_layers:
-            n_channels = layer.out_channels
-            info.append((name, n_channels))
+        # Get conv layers to determine channel counts
+        conv_layers = []
+        for name, module in self.model.named_modules():
+            if isinstance(module, torch.nn.Conv2d):
+                conv_layers.append((name, module))
+
+        # Match ReLU layers with their corresponding conv layer channel counts
+        for idx, (name, layer) in enumerate(self.relu_layers):
+            if idx < len(conv_layers):
+                n_channels = conv_layers[idx][1].out_channels
+                info.append((name, n_channels))
         return info
 
     def compute_activation_stats(self, dataloader, layer_idx: int):
         """
-        Compute min/max activation values for a specific layer.
+        No-op: Activation statistics are not needed when replacing with zeros.
 
         Args:
             dataloader: DataLoader for the dataset
-            layer_idx: Index of the layer in self.conv_layers
+            layer_idx: Index of the layer in self.relu_layers
         """
-        if layer_idx >= len(self.conv_layers):
+        # No longer needed since we replace with zeros
+        if layer_idx >= len(self.relu_layers):
             raise ValueError(f"Layer index {layer_idx} out of range")
 
-        layer_name, layer = self.conv_layers[layer_idx]
+        layer_name, layer = self.relu_layers[layer_idx]
 
-        # Skip if already computed
-        if layer_name in self.activation_stats:
-            return
-
-        # Collect activations
-        activations = []
-
-        def hook_fn(module, input, output):
-            activations.append(output.detach().cpu())
-
-        # Register hook
-        handle = layer.register_forward_hook(hook_fn)
-
-        # Forward pass on a subset of data to get statistics
-        self.model.eval()
-        with torch.no_grad():
-            for i, (inputs, _) in enumerate(dataloader):
-                if i >= 10:  # Use first 10 batches for stats
-                    break
-                inputs = inputs.to(self.device)
-                _ = self.model(inputs)
-
-        # Remove hook
-        handle.remove()
-
-        # Compute min/max across all collected activations
-        all_activations = torch.cat(activations, dim=0)
-        layer_min = all_activations.min().item()
-        layer_max = all_activations.max().item()
-
-        self.activation_stats[layer_name] = (layer_min, layer_max)
-        print(f"  Computed activation range for {layer_name}: [{layer_min:.4f}, {layer_max:.4f}]")
+        # Mark as "computed" for compatibility
+        if layer_name not in self.activation_stats:
+            self.activation_stats[layer_name] = None
+            print(f"  Layer {layer_name}: Will replace masked channels with zeros")
 
     def _masking_hook(self, module, input, output):
         """
-        Hook function that masks selected channels with uniform noise.
+        Hook function that masks selected channels with zeros.
         """
-        if self.channels_to_mask is None or self.noise_range is None:
+        if self.channels_to_mask is None:
             return output
 
         # Clone output to avoid in-place modification issues
         masked_output = output.clone()
 
-        # Replace selected channels with uniform noise
+        # Replace selected channels with zeros
         for channel_idx in self.channels_to_mask:
-            noise = torch.empty_like(masked_output[:, channel_idx, :, :]).uniform_(
-                self.noise_range[0], self.noise_range[1]
-            )
-            masked_output[:, channel_idx, :, :] = noise
+            masked_output[:, channel_idx, :, :] = 0.0
 
         return masked_output
 
@@ -148,27 +126,26 @@ class ActivationMasker:
         Set up masking for specified channels in a layer.
 
         Args:
-            layer_idx: Index of the layer in self.conv_layers
+            layer_idx: Index of the layer in self.relu_layers
             channels_to_mask: Set of channel indices to mask
         """
-        if layer_idx >= len(self.conv_layers):
+        if layer_idx >= len(self.relu_layers):
             raise ValueError(f"Layer index {layer_idx} out of range")
 
-        layer_name, layer = self.conv_layers[layer_idx]
+        layer_name, layer = self.relu_layers[layer_idx]
 
-        # Ensure we have activation statistics
+        # Ensure we have "computed" activation stats (for compatibility)
         if layer_name not in self.activation_stats:
             raise ValueError(f"Must compute activation stats for {layer_name} first")
 
         # Store masking configuration
         self.channels_to_mask = channels_to_mask
-        self.noise_range = self.activation_stats[layer_name]
 
         # Remove existing hook if any
         if self.hook_handle is not None:
             self.hook_handle.remove()
 
-        # Register new hook
+        # Register new hook on the ReLU layer
         self.hook_handle = layer.register_forward_hook(self._masking_hook)
 
     def remove_hook(self):

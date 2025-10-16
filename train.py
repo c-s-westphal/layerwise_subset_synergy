@@ -97,11 +97,11 @@ def test(model, testloader, criterion, device):
     return test_loss / len(testloader), 100. * correct / total
 
 
-def train_model(model_name, epochs=500, batch_size=128, lr=0.001,
+def train_model(model_name, epochs=200, batch_size=128, lr=0.1,
                 target_train_acc=95.0, device='cuda', seed=None,
                 checkpoint_dir='checkpoints', log_dir='logs'):
     """
-    Train a VGG model.
+    Train a VGG model with SGD and learning rate decay at epochs 100 and 150.
     """
     # Set random seed for reproducibility
     if seed is not None:
@@ -135,7 +135,10 @@ def train_model(model_name, epochs=500, batch_size=128, lr=0.001,
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
+    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9, weight_decay=5e-4)
+
+    # Learning rate scheduler: decay at epochs 100 and 150
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[100, 150], gamma=0.1)
 
     train_acc_reached = False
 
@@ -148,6 +151,9 @@ def train_model(model_name, epochs=500, batch_size=128, lr=0.001,
 
         print(f"Train Loss: {train_loss:.3f} | Train Acc: {train_acc:.2f}%")
         print(f"Test Loss: {test_loss:.3f} | Test Acc: {test_acc:.2f}%")
+
+        # Step the learning rate scheduler
+        scheduler.step()
 
         # Check if target train accuracy reached - STOP IMMEDIATELY
         if train_acc >= target_train_acc:
@@ -206,17 +212,17 @@ def train_model(model_name, epochs=500, batch_size=128, lr=0.001,
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Train VGG models on CIFAR-10 with AdamW')
+    parser = argparse.ArgumentParser(description='Train VGG models on CIFAR-10 with SGD')
     parser.add_argument('--model', type=str, default='all',
                        choices=['vgg11', 'vgg13', 'vgg16', 'vgg19', 'all'],
                        help='Model to train (default: all)')
-    parser.add_argument('--epochs', type=int, default=500,
-                       help='Max number of epochs (default: 500)')
+    parser.add_argument('--epochs', type=int, default=200,
+                       help='Max number of epochs (default: 200)')
     parser.add_argument('--batch_size', '--batch-size', type=int, default=128,
                        dest='batch_size',
                        help='Batch size (default: 128)')
-    parser.add_argument('--lr', type=float, default=0.001,
-                       help='Learning rate for AdamW (default: 0.001)')
+    parser.add_argument('--lr', type=float, default=0.1,
+                       help='Learning rate for SGD (default: 0.1)')
     parser.add_argument('--target_train_acc', '--target-acc', type=float, default=95.0,
                        dest='target_train_acc',
                        help='Target train accuracy for early stopping (default: 95.0)')
