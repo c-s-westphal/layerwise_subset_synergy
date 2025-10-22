@@ -18,7 +18,7 @@ paramfile="scripts/jobs_vgg16.txt"
 # 1.  Activate virtual environment
 # ---------------------------------------------------------------------
 # Activate venv using full path
-source ~/layerwise_subset_synergy/venv/bin/activate
+source ~/vgg11_dropout_robustness/venv/bin/activate
 
 # ---------------------------------------------------------------------
 # 2.  Keep Matplotlib out of home quota
