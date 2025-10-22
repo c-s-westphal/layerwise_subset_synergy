@@ -56,7 +56,7 @@ python3.9 -u train.py \
     --epochs 500 \
     --batch_size 128 \
     --lr 0.001 \
-    --target_train_acc 95.0 \
+    --target_train_acc 99.99 \
     --checkpoint_dir checkpoints \
     --log_dir logs
 
