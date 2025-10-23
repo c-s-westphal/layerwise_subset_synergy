@@ -67,23 +67,46 @@ class ActivationMasker:
 
     def get_layer_info(self) -> List[Tuple[str, int]]:
         """
-        Get information about each ReLU layer.
+        Get information about each ReLU layer by running a dummy forward pass.
 
         Returns:
             List of tuples (layer_name, n_output_channels)
         """
         info = []
-        # Get conv layers to determine channel counts
-        conv_layers = []
-        for name, module in self.model.named_modules():
-            if isinstance(module, torch.nn.Conv2d):
-                conv_layers.append((name, module))
 
-        # Match ReLU layers with their corresponding conv layer channel counts
-        for idx, (name, layer) in enumerate(self.relu_layers):
-            if idx < len(conv_layers):
-                n_channels = conv_layers[idx][1].out_channels
+        # Create a dummy input (batch_size=1, channels=3, height=32, width=32 for CIFAR-10)
+        dummy_input = torch.randn(1, 3, 32, 32).to(self.device)
+
+        # Store outputs from each ReLU layer
+        outputs = {}
+        handles = []
+
+        def create_hook(layer_name):
+            def hook(module, input, output):
+                outputs[layer_name] = output
+            return hook
+
+        # Register hooks on all ReLU layers
+        for name, layer in self.relu_layers:
+            handle = layer.register_forward_hook(create_hook(name))
+            handles.append(handle)
+
+        # Run forward pass
+        self.model.eval()
+        with torch.no_grad():
+            _ = self.model(dummy_input)
+
+        # Remove hooks
+        for handle in handles:
+            handle.remove()
+
+        # Extract channel counts from outputs
+        for name, _ in self.relu_layers:
+            if name in outputs:
+                # Output shape is (batch, channels, height, width)
+                n_channels = outputs[name].shape[1]
                 info.append((name, n_channels))
+
         return info
 
     def compute_activation_stats(self, dataloader, layer_idx: int):

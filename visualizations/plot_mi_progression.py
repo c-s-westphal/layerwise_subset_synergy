@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Plot the progression of MI values through layers for different VGG architectures.
+Plot the progression of MI values through layers for different VGG and ResNet architectures.
 """
 
 import json
@@ -11,7 +11,8 @@ from pathlib import Path
 from collections import defaultdict
 
 
-def load_results(data_dir='data', architectures=['vgg11', 'vgg13', 'vgg16', 'vgg19']):
+def load_results(data_dir='data', architectures=['vgg11', 'vgg13', 'vgg16', 'vgg19',
+                                                  'resnet20', 'resnet32', 'resnet56', 'resnet74']):
     """
     Load MI results from JSON files.
 
@@ -41,9 +42,17 @@ def load_results(data_dir='data', architectures=['vgg11', 'vgg13', 'vgg16', 'vgg
 
             for layer in arch_data['layers']:
                 layer_idx = layer['layer_idx']
-                results[arch][layer_idx]['mean_delta_mi'].append(layer['mean_delta_mi'])
-                results[arch][layer_idx]['std_delta_mi'].append(layer['std_delta_mi'])
-                results[arch][layer_idx]['baseline_mi'].append(arch_data['baseline_mi'])
+
+                # Check if this is new format (with mean_delta_mi) or old format (with mean_mi)
+                if 'mean_delta_mi' in layer:
+                    # New format
+                    results[arch][layer_idx]['mean_delta_mi'].append(layer['mean_delta_mi'])
+                    results[arch][layer_idx]['std_delta_mi'].append(layer['std_delta_mi'])
+                    results[arch][layer_idx]['baseline_mi'].append(arch_data['baseline_mi'])
+                else:
+                    # Old format - skip this file
+                    print(f"Skipping {filepath} - old format (needs re-evaluation)")
+                    break
 
                 if results[arch][layer_idx]['layer_name'] is None:
                     results[arch][layer_idx]['layer_name'] = layer['layer_name']
@@ -58,8 +67,14 @@ def plot_mi_progression(results, output_path='plots/mi_progression.png'):
     """
     fig, ax = plt.subplots(figsize=(12, 6))
 
-    colors = {'vgg11': '#1f77b4', 'vgg13': '#ff7f0e', 'vgg16': '#2ca02c', 'vgg19': '#d62728'}
-    markers = {'vgg11': 'o', 'vgg13': 's', 'vgg16': '^', 'vgg19': 'D'}
+    colors = {
+        'vgg11': '#1f77b4', 'vgg13': '#ff7f0e', 'vgg16': '#2ca02c', 'vgg19': '#d62728',
+        'resnet20': '#9467bd', 'resnet32': '#8c564b', 'resnet56': '#e377c2', 'resnet74': '#7f7f7f'
+    }
+    markers = {
+        'vgg11': 'o', 'vgg13': 's', 'vgg16': '^', 'vgg19': 'D',
+        'resnet20': 'v', 'resnet32': '<', 'resnet56': '>', 'resnet74': 'p'
+    }
 
     for arch in sorted(results.keys()):
         layer_indices = sorted(results[arch].keys())

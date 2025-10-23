@@ -10,6 +10,7 @@ from tqdm import tqdm
 import numpy as np
 
 from models import vgg11, vgg13, vgg16, vgg19
+from models.resnet import ResNet20, ResNet32, ResNet56, ResNet74
 from masking import ActivationMasker, generate_random_subsets, forward_with_masked_activations
 from mutual_information import calculate_mi_per_layer
 
@@ -39,7 +40,11 @@ def load_model(model_name, checkpoint_path, device='cuda'):
         'vgg11': vgg11,
         'vgg13': vgg13,
         'vgg16': vgg16,
-        'vgg19': vgg19
+        'vgg19': vgg19,
+        'resnet20': ResNet20,
+        'resnet32': ResNet32,
+        'resnet56': ResNet56,
+        'resnet74': ResNet74
     }
 
     model = model_dict[model_name]().to(device)
@@ -141,7 +146,7 @@ def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
     Evaluate a trained model by masking activation channels in each layer.
 
     Args:
-        model_name: Name of the model (vgg11, vgg13, vgg16, vgg19)
+        model_name: Name of the model (vgg11, vgg13, vgg16, vgg19, resnet20, resnet32, resnet56, resnet74)
         checkpoint_path: Path to model checkpoint
         n_subsets: Number of random subsets per layer
         batch_size: Batch size for evaluation
@@ -232,9 +237,10 @@ def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Evaluate VGG models with channel masking')
+        description='Evaluate VGG and ResNet models with channel masking')
     parser.add_argument('--model', type=str, default='all',
-                       choices=['vgg11', 'vgg13', 'vgg16', 'vgg19', 'all'],
+                       choices=['vgg11', 'vgg13', 'vgg16', 'vgg19',
+                               'resnet20', 'resnet32', 'resnet56', 'resnet74', 'all'],
                        help='Model to evaluate (default: all)')
     parser.add_argument('--checkpoint', type=str, default=None,
                        help='Path to specific checkpoint file, or "best"/"final" for standard names (default: None)')
@@ -264,7 +270,8 @@ def main():
 
     # Determine which models to evaluate
     if args.model == 'all':
-        models_to_eval = ['vgg11', 'vgg13', 'vgg16', 'vgg19']
+        models_to_eval = ['vgg11', 'vgg13', 'vgg16', 'vgg19',
+                         'resnet20', 'resnet32', 'resnet56', 'resnet74']
     else:
         models_to_eval = [args.model]
 

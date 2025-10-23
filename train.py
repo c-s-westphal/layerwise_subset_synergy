@@ -9,6 +9,7 @@ import argparse
 from tqdm import tqdm
 
 from models import vgg11, vgg13, vgg16, vgg19
+from models.resnet import ResNet20, ResNet32, ResNet56, ResNet74
 
 
 def get_cifar10_loaders(batch_size=128):
@@ -101,7 +102,7 @@ def train_model(model_name, epochs=500, batch_size=128, lr=0.001,
                 target_train_acc=99.99, device='cuda', seed=None,
                 checkpoint_dir='checkpoints', log_dir='logs'):
     """
-    Train a VGG model with AdamW and cosine annealing learning rate schedule.
+    Train a VGG or ResNet model with AdamW and cosine annealing learning rate schedule.
     """
     # Set random seed for reproducibility
     if seed is not None:
@@ -125,7 +126,11 @@ def train_model(model_name, epochs=500, batch_size=128, lr=0.001,
         'vgg11': vgg11,
         'vgg13': vgg13,
         'vgg16': vgg16,
-        'vgg19': vgg19
+        'vgg19': vgg19,
+        'resnet20': ResNet20,
+        'resnet32': ResNet32,
+        'resnet56': ResNet56,
+        'resnet74': ResNet74
     }
 
     model = model_dict[model_name]().to(device)
@@ -212,9 +217,10 @@ def train_model(model_name, epochs=500, batch_size=128, lr=0.001,
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Train VGG models on CIFAR-10 with AdamW')
+    parser = argparse.ArgumentParser(description='Train VGG and ResNet models on CIFAR-10 with AdamW')
     parser.add_argument('--model', type=str, default='all',
-                       choices=['vgg11', 'vgg13', 'vgg16', 'vgg19', 'all'],
+                       choices=['vgg11', 'vgg13', 'vgg16', 'vgg19',
+                               'resnet20', 'resnet32', 'resnet56', 'resnet74', 'all'],
                        help='Model to train (default: all)')
     parser.add_argument('--epochs', type=int, default=500,
                        help='Max number of epochs (default: 500)')
@@ -244,7 +250,8 @@ def main():
 
     # Train models
     if args.model == 'all':
-        models_to_train = ['vgg11', 'vgg13', 'vgg16', 'vgg19']
+        models_to_train = ['vgg11', 'vgg13', 'vgg16', 'vgg19',
+                          'resnet20', 'resnet32', 'resnet56', 'resnet74']
     else:
         models_to_train = [args.model]
 
