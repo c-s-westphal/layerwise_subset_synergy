@@ -14,29 +14,22 @@ from models.resnet import ResNet20, ResNet32, ResNet56, ResNet74
 
 def get_cifar10_loaders(batch_size=128):
     """
-    Get CIFAR-10 train and test data loaders with standard augmentations.
+    Get CIFAR-10 train and test data loaders without data augmentation.
+    Only applies normalization to both train and test sets.
     """
-    # Data augmentation for training
-    transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])
-
-    # Normalization only for test
-    transform_test = transforms.Compose([
+    # No augmentation - only normalization for both train and test
+    transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ])
 
     trainset = torchvision.datasets.CIFAR10(
-        root='./data', train=True, download=True, transform=transform_train)
+        root='./data', train=True, download=True, transform=transform)
     trainloader = DataLoader(
         trainset, batch_size=batch_size, shuffle=True, num_workers=2)
 
     testset = torchvision.datasets.CIFAR10(
-        root='./data', train=False, download=True, transform=transform_test)
+        root='./data', train=False, download=True, transform=transform)
     testloader = DataLoader(
         testset, batch_size=batch_size, shuffle=False, num_workers=2)
 
