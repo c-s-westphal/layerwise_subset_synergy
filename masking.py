@@ -103,7 +103,9 @@ class ActivationMasker:
         # Extract channel counts from outputs
         for name, _ in self.relu_layers:
             if name in outputs:
-                # Output shape is (batch, channels, height, width)
+                # Output shape is (batch, channels, height, width) for conv layers
+                # or (batch, features) for fc layers
+                # In both cases, dimension 1 is the channel/feature dimension
                 n_channels = outputs[name].shape[1]
                 info.append((name, n_channels))
 
@@ -139,8 +141,16 @@ class ActivationMasker:
         masked_output = output.clone()
 
         # Replace selected channels with zeros
+        # Handle both 4D (conv layers) and 2D (fc layers) tensors
         for channel_idx in self.channels_to_mask:
-            masked_output[:, channel_idx, :, :] = 0.0
+            if len(masked_output.shape) == 4:
+                # Convolutional layer output: (batch, channels, height, width)
+                masked_output[:, channel_idx, :, :] = 0.0
+            elif len(masked_output.shape) == 2:
+                # Fully connected layer output: (batch, features)
+                masked_output[:, channel_idx] = 0.0
+            else:
+                raise ValueError(f"Unexpected tensor shape: {masked_output.shape}")
 
         return masked_output
 
