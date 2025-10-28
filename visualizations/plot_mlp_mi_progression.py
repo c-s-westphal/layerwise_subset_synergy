@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Plot the progression of MI values through layers for different VGG architectures.
+Plot the progression of MI values through layers for MLP architectures with different depths.
 """
 
 import json
@@ -19,13 +19,13 @@ plt.rcParams['mathtext.it'] = 'Times New Roman:italic'
 plt.rcParams['mathtext.bf'] = 'Times New Roman:bold'
 
 
-def load_results(data_dir='data', architectures=['vgg9', 'vgg11', 'vgg13', 'vgg16', 'vgg19']):
+def load_results(data_dir='data', architectures=['mlp2', 'mlp3', 'mlp4', 'mlp5', 'mlp6']):
     """
     Load MI results from JSON files.
 
     Returns:
         dict: {architecture: {layer_idx: {'mean_delta_mi': [...], 'std_delta_mi': [...],
-                                          'baseline_mi': [...], 'layer_name': str}}}
+                                          'baseline_mi': [], 'layer_name': str}}}
     """
     results = defaultdict(lambda: defaultdict(lambda: {'mean_delta_mi': [], 'std_delta_mi': [],
                                                         'baseline_mi': [], 'layer_name': None}))
@@ -50,16 +50,10 @@ def load_results(data_dir='data', architectures=['vgg9', 'vgg11', 'vgg13', 'vgg1
             for layer in arch_data['layers']:
                 layer_idx = layer['layer_idx']
 
-                # Check if this is new format (with mean_delta_mi) or old format (with mean_mi)
-                if 'mean_delta_mi' in layer:
-                    # New format
-                    results[arch][layer_idx]['mean_delta_mi'].append(layer['mean_delta_mi'])
-                    results[arch][layer_idx]['std_delta_mi'].append(layer['std_delta_mi'])
-                    results[arch][layer_idx]['baseline_mi'].append(arch_data['baseline_mi'])
-                else:
-                    # Old format - skip this file
-                    print(f"Skipping {filepath} - old format (needs re-evaluation)")
-                    break
+                # Store data
+                results[arch][layer_idx]['mean_delta_mi'].append(layer['mean_delta_mi'])
+                results[arch][layer_idx]['std_delta_mi'].append(layer['std_delta_mi'])
+                results[arch][layer_idx]['baseline_mi'].append(arch_data['baseline_mi'])
 
                 if results[arch][layer_idx]['layer_name'] is None:
                     results[arch][layer_idx]['layer_name'] = layer['layer_name']
@@ -67,20 +61,20 @@ def load_results(data_dir='data', architectures=['vgg9', 'vgg11', 'vgg13', 'vgg1
     return results
 
 
-def plot_mi_progression(results, output_path='plots/mi_progression.png'):
+def plot_mi_progression(results, output_path='plots/mlp_mi_progression.png'):
     """
-    Plot MI progression through layers for all architectures.
+    Plot MI progression through layers for all MLP architectures.
     Values show ΔMI = I(Y; Ŷ_full) - I(Y; Ŷ_masked), the information lost due to masking.
     """
     fig, ax = plt.subplots(figsize=(7, 4.5))
 
-    # Publication-quality color scheme
+    # Publication-quality color scheme for MLPs
     colors = {
-        'vgg9': '#F39B7F',   # Peach
-        'vgg11': '#E64B35',  # Red-orange
-        'vgg13': '#4DBBD5',  # Cyan
-        'vgg16': '#00A087',  # Teal
-        'vgg19': '#3C5488'   # Blue
+        'mlp2': '#F39B7F',   # Peach
+        'mlp3': '#E64B35',   # Red-orange
+        'mlp4': '#4DBBD5',   # Cyan
+        'mlp5': '#00A087',   # Teal
+        'mlp6': '#3C5488'    # Blue
     }
 
     for arch in sorted(results.keys()):
@@ -117,7 +111,7 @@ def plot_mi_progression(results, output_path='plots/mi_progression.png'):
     # Publication-quality styling
     ax.set_xlabel('Layer Index', fontsize=16, fontweight='normal')
     ax.set_ylabel('Subset Synergy', fontsize=16, fontweight='normal')
-    ax.set_title('Information Lost by Masking Across Layers', fontsize=16, fontweight='bold', pad=10)
+    ax.set_title('Information Lost by Masking Across MLP Layers', fontsize=16, fontweight='bold', pad=10)
 
     # Increase tick label size
     ax.tick_params(axis='both', which='major', labelsize=14)
