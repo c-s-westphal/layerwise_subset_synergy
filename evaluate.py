@@ -9,7 +9,7 @@ import json
 from tqdm import tqdm
 import numpy as np
 
-from models import vgg11, vgg13, vgg16, vgg19
+from models import vgg9, vgg11, vgg13, vgg16, vgg19
 from models.resnet import ResNet20, ResNet32, ResNet56, ResNet74
 from masking import ActivationMasker, generate_random_subsets, forward_with_masked_activations
 from mutual_information import calculate_mi_per_layer
@@ -37,6 +37,7 @@ def load_model(model_name, checkpoint_path, device='cuda'):
     Load a trained model from checkpoint.
     """
     model_dict = {
+        'vgg9': vgg9,
         'vgg11': vgg11,
         'vgg13': vgg13,
         'vgg16': vgg16,

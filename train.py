@@ -8,7 +8,7 @@ import os
 import argparse
 from tqdm import tqdm
 
-from models import vgg11, vgg13, vgg16, vgg19
+from models import vgg9, vgg11, vgg13, vgg16, vgg19
 from models.resnet import ResNet20, ResNet32, ResNet56, ResNet74
 
 
@@ -116,6 +116,7 @@ def train_model(model_name, epochs=500, batch_size=128, lr=0.001,
 
     # Initialize model
     model_dict = {
+        'vgg9': vgg9,
         'vgg11': vgg11,
         'vgg13': vgg13,
         'vgg16': vgg16,
@@ -243,7 +244,7 @@ def main():
 
     # Train models
     if args.model == 'all':
-        models_to_train = ['vgg11', 'vgg13', 'vgg16', 'vgg19',
+        models_to_train = ['vgg9', 'vgg11', 'vgg13', 'vgg16', 'vgg19',
                           'resnet20', 'resnet32', 'resnet56', 'resnet74']
     else:
         models_to_train = [args.model]

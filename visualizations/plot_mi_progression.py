@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Plot the progression of MI values through layers for different VGG and ResNet architectures.
+Plot the progression of MI values through layers for different VGG architectures.
 """
 
 import json
@@ -10,9 +10,16 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from collections import defaultdict
 
+# Set up Times New Roman font
+plt.rcParams['font.family'] = 'serif'
+plt.rcParams['font.serif'] = ['Times New Roman']
+plt.rcParams['mathtext.fontset'] = 'custom'
+plt.rcParams['mathtext.rm'] = 'Times New Roman'
+plt.rcParams['mathtext.it'] = 'Times New Roman:italic'
+plt.rcParams['mathtext.bf'] = 'Times New Roman:bold'
 
-def load_results(data_dir='data', architectures=['vgg11', 'vgg13', 'vgg16', 'vgg19',
-                                                  'resnet20', 'resnet32', 'resnet56', 'resnet74']):
+
+def load_results(data_dir='data', architectures=['vgg9', 'vgg11', 'vgg13', 'vgg16', 'vgg19']):
     """
     Load MI results from JSON files.
 
@@ -67,13 +74,13 @@ def plot_mi_progression(results, output_path='plots/mi_progression.png'):
     """
     fig, ax = plt.subplots(figsize=(12, 6))
 
+    # Publication-quality color scheme
     colors = {
-        'vgg11': '#1f77b4', 'vgg13': '#ff7f0e', 'vgg16': '#2ca02c', 'vgg19': '#d62728',
-        'resnet20': '#9467bd', 'resnet32': '#8c564b', 'resnet56': '#e377c2', 'resnet74': '#7f7f7f'
-    }
-    markers = {
-        'vgg11': 'o', 'vgg13': 's', 'vgg16': '^', 'vgg19': 'D',
-        'resnet20': 'v', 'resnet32': '<', 'resnet56': '>', 'resnet74': 'p'
+        'vgg9': '#F39B7F',   # Peach
+        'vgg11': '#E64B35',  # Red-orange
+        'vgg13': '#4DBBD5',  # Cyan
+        'vgg16': '#00A087',  # Teal
+        'vgg19': '#3C5488'   # Blue
     }
 
     for arch in sorted(results.keys()):
@@ -94,14 +101,12 @@ def plot_mi_progression(results, output_path='plots/mi_progression.png'):
         mean_delta_mis = np.array(mean_delta_mis)
         std_delta_mis = np.array(std_delta_mis)
 
-        # Plot with error bars (no transformation needed)
+        # Plot with error bars (no markers)
         ax.plot(layer_indices, mean_delta_mis,
-                marker=markers.get(arch, 'o'),
                 color=colors.get(arch, None),
-                linewidth=2,
-                markersize=8,
+                linewidth=2.5,
                 label=arch.upper(),
-                alpha=0.8)
+                alpha=0.85)
 
         ax.fill_between(layer_indices,
                         mean_delta_mis - std_delta_mis,
@@ -109,14 +114,31 @@ def plot_mi_progression(results, output_path='plots/mi_progression.png'):
                         color=colors.get(arch, None),
                         alpha=0.2)
 
-    ax.set_xlabel('Layer Index', fontsize=12)
-    ax.set_ylabel('ΔMI = I(Y; Ŷ_full) - I(Y; Ŷ_masked) (nats)', fontsize=12)
-    ax.set_title('Information Lost by Masking Across Layers', fontsize=14, fontweight='bold')
-    ax.legend(fontsize=11, loc='best')
-    ax.grid(True, alpha=0.3)
+    # Publication-quality styling
+    ax.set_xlabel('Layer Index', fontsize=16, fontweight='normal')
+    ax.set_ylabel('Subset Synergy', fontsize=16, fontweight='normal')
+    ax.set_title('Information Lost by Masking Across Layers', fontsize=16, fontweight='bold', pad=10)
+
+    # Increase tick label size
+    ax.tick_params(axis='both', which='major', labelsize=14)
+
+    # Legend with updated styling
+    ax.legend(fontsize=13, loc='best', frameon=True, fancybox=False,
+              edgecolor='black', framealpha=1)
+
+    # Remove grid lines
+    ax.grid(False)
+
+    # Black border (spines)
+    for spine in ax.spines.values():
+        spine.set_edgecolor('black')
+        spine.set_linewidth(1.5)
+
+    # Set background color to white
+    ax.set_facecolor('white')
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path, dpi=600, bbox_inches='tight', facecolor='white')
     print(f"Saved plot to {output_path}")
 
     return fig, ax
