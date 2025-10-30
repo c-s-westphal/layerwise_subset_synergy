@@ -15,16 +15,16 @@ from masking import ActivationMasker, generate_random_subsets, forward_with_mask
 from mutual_information import calculate_mi_per_layer
 
 
-def get_cifar10_train_loader(batch_size=128):
+def get_cifar100_train_loader(batch_size=128):
     """
-    Get CIFAR-10 train data loader (without augmentation).
+    Get CIFAR-100 train data loader (without augmentation).
     """
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)),
     ])
 
-    trainset = torchvision.datasets.CIFAR10(
+    trainset = torchvision.datasets.CIFAR100(
         root='./data', train=True, download=True, transform=transform)
     trainloader = DataLoader(
         trainset, batch_size=batch_size, shuffle=False, num_workers=2)
@@ -48,7 +48,7 @@ def load_model(model_name, checkpoint_path, device='cuda'):
         'resnet74': ResNet74
     }
 
-    model = model_dict[model_name]().to(device)
+    model = model_dict[model_name](num_classes=100).to(device)
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint['model'])
@@ -162,7 +162,7 @@ def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
 
     # Load model
     model = load_model(model_name, checkpoint_path, device)
-    trainloader = get_cifar10_train_loader(batch_size)
+    trainloader = get_cifar100_train_loader(batch_size)
 
     # Calculate baseline MI (unmasked model)
     print("Calculating baseline MI (unmasked model)...", end=' ', flush=True)
@@ -238,9 +238,9 @@ def evaluate_model(model_name, checkpoint_path, n_subsets=1000,
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Evaluate VGG and ResNet models with channel masking')
+        description='Evaluate VGG and ResNet models with channel masking on CIFAR-100')
     parser.add_argument('--model', type=str, default='all',
-                       choices=['vgg11', 'vgg13', 'vgg16', 'vgg19',
+                       choices=['vgg9', 'vgg11', 'vgg13', 'vgg16', 'vgg19',
                                'resnet20', 'resnet32', 'resnet56', 'resnet74', 'all'],
                        help='Model to evaluate (default: all)')
     parser.add_argument('--checkpoint', type=str, default=None,
@@ -271,7 +271,7 @@ def main():
 
     # Determine which models to evaluate
     if args.model == 'all':
-        models_to_eval = ['vgg11', 'vgg13', 'vgg16', 'vgg19',
+        models_to_eval = ['vgg9', 'vgg11', 'vgg13', 'vgg16', 'vgg19',
                          'resnet20', 'resnet32', 'resnet56', 'resnet74']
     else:
         models_to_eval = [args.model]
