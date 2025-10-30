@@ -213,7 +213,7 @@ def train_model(model_name, epochs=500, batch_size=128, lr=0.001,
 def main():
     parser = argparse.ArgumentParser(description='Train VGG and ResNet models on CIFAR-10 with AdamW')
     parser.add_argument('--model', type=str, default='all',
-                       choices=['vgg11', 'vgg13', 'vgg16', 'vgg19',
+                       choices=['vgg9', 'vgg11', 'vgg13', 'vgg16', 'vgg19',
                                'resnet20', 'resnet32', 'resnet56', 'resnet74', 'all'],
                        help='Model to train (default: all)')
     parser.add_argument('--epochs', type=int, default=500,
