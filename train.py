@@ -14,10 +14,17 @@ from models import vgg9, vgg11, vgg13, vgg16, vgg19
 from models.resnet import ResNet20, ResNet32, ResNet56, ResNet74
 
 
-def get_cifar100_loaders(batch_size=256):
+def get_cifar100_loaders(batch_size=256, return_clean_train=False):
     """
     Get CIFAR-100 train and test data loaders with data augmentation.
     Training uses RandomCrop, RandomHorizontalFlip, and RandAugment.
+
+    Args:
+        batch_size: Batch size for data loaders
+        return_clean_train: If True, also return a clean (non-augmented) train loader
+
+    Returns:
+        trainloader, testloader (and optionally clean_trainloader)
     """
     # Training transforms with augmentation
     train_transform = transforms.Compose([
@@ -28,7 +35,7 @@ def get_cifar100_loaders(batch_size=256):
         transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)),
     ])
 
-    # Test transforms - only normalization
+    # Test transforms - only normalization (also used for clean train evaluation)
     test_transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)),
@@ -43,6 +50,14 @@ def get_cifar100_loaders(batch_size=256):
         root='./data', train=False, download=True, transform=test_transform)
     testloader = DataLoader(
         testset, batch_size=batch_size, shuffle=False, num_workers=2)
+
+    if return_clean_train:
+        # Clean train set for early stopping evaluation (no augmentation)
+        clean_trainset = torchvision.datasets.CIFAR100(
+            root='./data', train=True, download=True, transform=test_transform)
+        clean_trainloader = DataLoader(
+            clean_trainset, batch_size=batch_size, shuffle=False, num_workers=2)
+        return trainloader, testloader, clean_trainloader
 
     return trainloader, testloader
 
@@ -210,8 +225,8 @@ def train_model(model_name, epochs=500, batch_size=256, lr=0.001,
 
     model = model_dict[model_name](num_classes=100).to(device)
 
-    # Get data loaders
-    trainloader, testloader = get_cifar100_loaders(batch_size)
+    # Get data loaders (including clean train for early stopping evaluation)
+    trainloader, testloader, clean_trainloader = get_cifar100_loaders(batch_size, return_clean_train=True)
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss()
@@ -234,21 +249,28 @@ def train_model(model_name, epochs=500, batch_size=256, lr=0.001,
     for epoch in range(epochs):
         print(f"\nEpoch: {epoch + 1}/{epochs}")
 
-        train_loss, train_acc = train_epoch(
+        # Train on augmented data
+        train_loss, train_acc_aug = train_epoch(
             model, trainloader, criterion, optimizer, device)
+
+        # Evaluate on clean train data (for early stopping)
+        clean_train_loss, clean_train_acc = test(model, clean_trainloader, criterion, device)
+
+        # Evaluate on test data
         test_loss, test_acc = test(model, testloader, criterion, device)
 
-        print(f"Train Loss: {train_loss:.3f} | Train Acc: {train_acc:.2f}%")
-        print(f"Test Loss: {test_loss:.3f} | Test Acc: {test_acc:.2f}%")
+        print(f"Train Loss (aug): {train_loss:.3f} | Train Acc (aug): {train_acc_aug:.2f}%")
+        print(f"Train Acc (clean): {clean_train_acc:.2f}% | Test Acc: {test_acc:.2f}%")
 
         # Step the learning rate scheduler
         scheduler.step()
 
         # Check if target train accuracy reached (if specified) - STOP IMMEDIATELY
-        if target_train_acc is not None and train_acc >= target_train_acc:
+        # Use CLEAN train accuracy for early stopping
+        if target_train_acc is not None and clean_train_acc >= target_train_acc:
             print(f"\n{'*'*60}")
             print(f"Target train accuracy {target_train_acc}% reached!")
-            print(f"Epoch: {epoch + 1}, Train Acc: {train_acc:.2f}%, Test Acc: {test_acc:.2f}%")
+            print(f"Epoch: {epoch + 1}, Clean Train Acc: {clean_train_acc:.2f}%, Test Acc: {test_acc:.2f}%")
             print(f"Stopping training and saving checkpoint...")
             print(f"{'*'*60}\n")
 
@@ -256,7 +278,8 @@ def train_model(model_name, epochs=500, batch_size=256, lr=0.001,
             checkpoint = {
                 'model': model.state_dict(),
                 'epoch': epoch + 1,
-                'train_acc': train_acc,
+                'train_acc': clean_train_acc,
+                'train_acc_aug': train_acc_aug,
                 'test_acc': test_acc,
                 'optimizer': optimizer.state_dict(),
             }
@@ -276,20 +299,21 @@ def train_model(model_name, epochs=500, batch_size=256, lr=0.001,
         if target_train_acc is not None:
             print(f"\n{'!'*60}")
             print(f"WARNING: Target train accuracy {target_train_acc}% NOT reached")
-            print(f"Final Train Acc: {train_acc:.2f}% after {epochs} epochs")
+            print(f"Final Clean Train Acc: {clean_train_acc:.2f}% after {epochs} epochs")
             print(f"Saving final checkpoint anyway...")
             print(f"{'!'*60}\n")
         else:
             print(f"\n{'='*60}")
             print(f"Training completed after {epochs} epochs")
-            print(f"Final Train Acc: {train_acc:.2f}%, Test Acc: {test_acc:.2f}%")
+            print(f"Final Clean Train Acc: {clean_train_acc:.2f}%, Test Acc: {test_acc:.2f}%")
             print(f"Saving final checkpoint...")
             print(f"{'='*60}\n")
 
         checkpoint = {
             'model': model.state_dict(),
             'epoch': epochs,
-            'train_acc': train_acc,
+            'train_acc': clean_train_acc,
+            'train_acc_aug': train_acc_aug,
             'test_acc': test_acc,
             'optimizer': optimizer.state_dict(),
         }
@@ -302,7 +326,7 @@ def train_model(model_name, epochs=500, batch_size=256, lr=0.001,
             torch.save(checkpoint, os.path.join(checkpoint_dir, f'{model_name}_latest.pth'))
 
     print(f"\nTraining complete for {model_name}")
-    print(f"Final Train Acc: {train_acc:.2f}%, Test Acc: {test_acc:.2f}%")
+    print(f"Final Clean Train Acc: {clean_train_acc:.2f}%, Test Acc: {test_acc:.2f}%")
 
     return model, train_acc_reached
 
