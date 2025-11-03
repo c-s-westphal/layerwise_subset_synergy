@@ -41,27 +41,10 @@ mkdir -p logs
 seed=$(sed -n ${number}p "$paramfile" | awk '{print $1}')
 
 date
-echo "Training: VGG9 | Seed: $seed"
+echo "Evaluating: VGG9 | Seed: $seed"
 
 # ---------------------------------------------------------------------
-# 5.  Run training
-# ---------------------------------------------------------------------
-echo "Starting training..."
-python -u train.py \
-    --model vgg9 \
-    --seed $seed \
-    --epochs 500 \
-    --batch_size 128 \
-    --lr 0.001 \
-    --target_train_acc 99.99 \
-    --checkpoint_dir checkpoints \
-    --log_dir logs
-
-date
-echo "Training completed successfully: VGG9 | Seed $seed"
-
-# ---------------------------------------------------------------------
-# 6.  Run evaluation with layer-wise masking
+# 5.  Run evaluation with layer-wise masking
 # ---------------------------------------------------------------------
 echo "Starting evaluation with layer-wise masking..."
 

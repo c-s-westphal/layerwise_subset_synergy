@@ -240,7 +240,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='Evaluate VGG and ResNet models with channel masking')
     parser.add_argument('--model', type=str, default='all',
-                       choices=['vgg11', 'vgg13', 'vgg16', 'vgg19',
+                       choices=['vgg9', 'vgg11', 'vgg13', 'vgg16', 'vgg19',
                                'resnet20', 'resnet32', 'resnet56', 'resnet74', 'all'],
                        help='Model to evaluate (default: all)')
     parser.add_argument('--checkpoint', type=str, default=None,
@@ -271,7 +271,7 @@ def main():
 
     # Determine which models to evaluate
     if args.model == 'all':
-        models_to_eval = ['vgg11', 'vgg13', 'vgg16', 'vgg19',
+        models_to_eval = ['vgg9', 'vgg11', 'vgg13', 'vgg16', 'vgg19',
                          'resnet20', 'resnet32', 'resnet56', 'resnet74']
     else:
         models_to_eval = [args.model]
